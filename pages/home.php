@@ -1,36 +1,73 @@
 <?php
-// Data statistik untuk homepage
+// Ambil statistik dari database
 $stats = [
-    ['value' => 127, 'label' => 'Total Kejadian', 'color' => 'text-orange-warning'],
-    ['value' => 42, 'label' => 'Korban Meninggal', 'color' => 'text-red-600'],
-    ['value' => 89, 'label' => 'Korban Luka', 'color' => 'text-yellow-600'],
-    ['value' => 315, 'label' => 'Rumah Rusak', 'color' => 'text-blue-600'],
+    ['value' => 0, 'label' => 'Total Kejadian', 'color' => 'text-orange-warning'],
+    ['value' => 0, 'label' => 'Korban Meninggal', 'color' => 'text-red-600'],
+    ['value' => 0, 'label' => 'Korban Luka', 'color' => 'text-yellow-600'],
+    ['value' => 0, 'label' => 'Rumah Rusak', 'color' => 'text-blue-600'],
 ];
 
-// Data berita terbaru
-$news = [
-    [
-        'id' => 1,
-        'title' => 'Peningkatan Kewaspadaan Tanah Longsor di Musim Hujan',
-        'summary' => 'BMKG mengingatkan masyarakat untuk meningkatkan kewaspadaan terhadap potensi tanah longsor di musim hujan ini.',
-        'date' => '15 Nov 2023',
-        'category' => 'Peringatan'
-    ],
-    [
-        'id' => 2,
-        'title' => 'Teknologi Baru Deteksi Dini Longsor',
-        'summary' => 'Peneliti kembangkan sistem deteksi dini tanah longsor menggunakan sensor IoT dan kecerdasan buatan.',
-        'date' => '10 Nov 2023',
-        'category' => 'Teknologi'
-    ],
-    [
-        'id' => 3,
-        'title' => 'Edukasi Mitigasi Bencana di Sekolah',
-        'summary' => 'BNPB gencarkan program edukasi mitigasi bencana tanah longsor di sekolah-sekolah daerah rawan.',
-        'date' => '5 Nov 2023',
-        'category' => 'Edukasi'
-    ]
-];
+try {
+    $events = $supabase->select('landslide_events');
+    
+    if (!isset($events['error']) && !empty($events)) {
+        $stats[0]['value'] = count($events);
+        $stats[1]['value'] = array_sum(array_column($events, 'korban_meninggal'));
+        $stats[2]['value'] = array_sum(array_column($events, 'korban_luka'));
+        $stats[3]['value'] = array_sum(array_column($events, 'kerusakan_rumah'));
+    }
+} catch (Exception $e) {
+    // Keep default values
+}
+
+// Ambil berita terbaru dari database
+$news = [];
+try {
+    $articles = $supabase->query('articles', [
+        'select' => '*',
+        'order' => 'published_date.desc',
+        'limit' => 3
+    ]);
+    
+    if (!isset($articles['error'])) {
+        foreach ($articles as $article) {
+            $news[] = [
+                'id' => $article['id'],
+                'title' => $article['title'],
+                'summary' => $article['summary'],
+                'date' => format_tanggal_indonesia($article['published_date']),
+                'category' => $article['category']
+            ];
+        }
+    }
+} catch (Exception $e) {
+    // Fallback to default news
+    $news = [
+        [
+            'id' => 1,
+            'title' => 'Peningkatan Kewaspadaan Tanah Longsor di Musim Hujan',
+            'summary' => 'BMKG mengingatkan masyarakat untuk meningkatkan kewaspadaan terhadap potensi tanah longsor di musim hujan ini.',
+            'date' => '15 November 2023',
+            'category' => 'Peringatan'
+        ]
+    ];
+}
+
+// Ambil beberapa kejadian terbaru untuk peta
+$recent_events = [];
+try {
+    $recent_events = $supabase->query('landslide_events', [
+        'select' => '*',
+        'order' => 'tanggal.desc',
+        'limit' => 10
+    ]);
+    
+    if (isset($recent_events['error'])) {
+        $recent_events = [];
+    }
+} catch (Exception $e) {
+    $recent_events = [];
+}
 ?>
 
 <main class="flex-grow">
@@ -111,12 +148,12 @@ $news = [
                         <div class="p-6">
                             <div class="flex justify-between items-start mb-3">
                                 <span class="bg-accent-blue/10 text-accent-blue text-xs font-poppins font-medium px-3 py-1 rounded-full">
-                                    <?php echo $item['category']; ?>
+                                    <?php echo htmlspecialchars($item['category']); ?>
                                 </span>
-                                <span class="text-text-muted text-sm"><?php echo $item['date']; ?></span>
+                                <span class="text-text-muted text-sm"><?php echo htmlspecialchars($item['date']); ?></span>
                             </div>
-                            <h3 class="font-poppins font-bold text-lg mb-3 multi-line-truncate truncate-2"><?php echo $item['title']; ?></h3>
-                                <p class="text-text-muted text-sm mb-4 multi-line-truncate truncate-3"><?php echo $item['summary']; ?></p>
+                            <h3 class="font-poppins font-bold text-lg mb-3 line-clamp-2"><?php echo htmlspecialchars($item['title']); ?></h3>
+                            <p class="text-text-muted text-sm mb-4 line-clamp-3"><?php echo htmlspecialchars($item['summary']); ?></p>
                             <a href="?page=pengetahuan&article=<?php echo $item['id']; ?>" class="text-accent-blue hover:text-accent-blue-hover font-poppins font-medium text-sm flex items-center gap-1">
                                 Baca Selengkapnya
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -132,9 +169,7 @@ $news = [
 </main>
 
 <script>
-// Inisialisasi peta sederhana untuk homepage
 document.addEventListener('DOMContentLoaded', function() {
-    // Periksa apakah elemen peta ada
     const mapElement = document.getElementById('home-map');
     if (!mapElement) return;
     
@@ -145,18 +180,29 @@ document.addEventListener('DOMContentLoaded', function() {
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
         
-        // Tambahkan beberapa marker contoh
-        const sampleLocations = [
-            { lat: -6.2088, lng: 106.8456, title: 'Jakarta' },
-            { lat: -7.2504, lng: 112.7688, title: 'Surabaya' },
-            { lat: -6.9175, lng: 107.6191, title: 'Bandung' },
-        ];
+        const recentEvents = <?php echo json_encode($recent_events); ?>;
         
-        sampleLocations.forEach(loc => {
-            L.marker([loc.lat, loc.lng])
+        if (recentEvents && recentEvents.length > 0) {
+            recentEvents.forEach(event => {
+                let markerColor = 'green';
+                if (event.korban_meninggal >= 5) {
+                    markerColor = 'red';
+                } else if (event.korban_meninggal >= 2) {
+                    markerColor = 'orange';
+                }
+                
+                L.marker([parseFloat(event.latitude), parseFloat(event.longitude)], {
+                    icon: L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="background-color: ${markerColor}; width: 10px; height: 10px; border-radius: 50%; border: 2px solid white;"></div>`,
+                        iconSize: [14, 14],
+                        iconAnchor: [7, 7]
+                    })
+                })
                 .addTo(map)
-                .bindPopup(`<b>${loc.title}</b><br>Contoh lokasi pemantauan`);
-        });
+                .bindPopup(`<b>${event.lokasi}</b><br>${event.provinsi}`);
+            });
+        }
     } catch (error) {
         console.error('Error initializing map:', error);
     }
